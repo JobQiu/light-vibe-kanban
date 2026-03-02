@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Code Web Chat</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header / Config */
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #58a6ff;
+      white-space: nowrap;
+    }
+
+    .config-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .config-group label {
+      font-size: 12px;
+      color: #8b949e;
+    }
+
+    .config-group input, .config-group select {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .config-group input { width: 300px; }
+
+    /* Chat area */
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .message {
+      max-width: 85%;
+      line-height: 1.5;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: #1f6feb;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 16px 16px 4px 16px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      background: #161b22;
+      border: 1px solid #30363d;
+      padding: 14px 18px;
+      border-radius: 4px 16px 16px 16px;
+    }
+
+    .message.assistant .text {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .message.assistant .text code {
+      background: #0d1117;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.9em;
+    }
+
+    .message.assistant .text pre {
+      background: #0d1117;
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 8px 0;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85em;
+      line-height: 1.4;
+    }
+
+    /* Tool usage blocks */
+    .tool-block {
+      margin: 8px 0;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .tool-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #1c2128;
+      cursor: pointer;
+      font-size: 13px;
+      user-select: none;
+    }
+
+    .tool-header:hover { background: #22272e; }
+
+    .tool-icon {
+      font-size: 11px;
+      color: #8b949e;
+      transition: transform 0.2s;
+    }
+
+    .tool-block.expanded .tool-icon { transform: rotate(90deg); }
+
+    .tool-name {
+      font-weight: 600;
+      color: #d2a8ff;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+    }
+
+    .tool-summary {
+      color: #8b949e;
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tool-body {
+      display: none;
+      padding: 10px 12px;
+      background: #0d1117;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .tool-block.expanded .tool-body { display: block; }
+
+    .tool-result {
+      border-top: 1px solid #30363d;
+      padding: 10px 12px;
+      background: #0d1117;
+      display: none;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .tool-block.expanded .tool-result.has-content { display: block; }
+
+    /* Status indicator */
+    .status {
+      padding: 8px 16px;
+      font-size: 13px;
+      color: #8b949e;
+      text-align: center;
+    }
+
+    .status.thinking::after {
+      content: '';
+      animation: dots 1.5s infinite;
+    }
+
+    @keyframes dots {
+      0%, 20% { content: '.'; }
+      40% { content: '..'; }
+      60%, 100% { content: '...'; }
+    }
+
+    /* Input area */
+    footer {
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      padding: 16px 20px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    #prompt {
+      flex: 1;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+      min-height: 44px;
+      max-height: 200px;
+      line-height: 1.4;
+    }
+
+    #prompt:focus { outline: none; border-color: #58a6ff; }
+
+    #send {
+      background: #238636;
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      align-self: flex-end;
+    }
+
+    #send:hover { background: #2ea043; }
+    #send:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+
+    .hint {
+      text-align: center;
+      font-size: 11px;
+      color: #484f58;
+      margin-top: 6px;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Claude Code Web</h1>
+    <div class="config-group">
+      <label for="cwd">Working Dir:</label>
+      <input type="text" id="cwd" placeholder="/path/to/your/project" />
+    </div>
+    <div class="config-group">
+      <label for="model">Model:</label>
+      <select id="model">
+        <option value="">Default</option>
+        <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+        <option value="claude-opus-4-6">Opus 4.6</option>
+        <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+      </select>
+    </div>
+  </header>
+
+  <div id="chat"></div>
+
+  <footer>
+    <div class="input-row">
+      <textarea id="prompt" rows="1" placeholder="Send a message to Claude Code..." autofocus></textarea>
+      <button id="send">Send</button>
+    </div>
+    <div class="hint">Enter to send, Shift+Enter for newline</div>
+  </footer>
+
+  <script>
+    const chatEl = document.getElementById('chat');
+    const promptEl = document.getElementById('prompt');
+    const sendBtn = document.getElementById('send');
+    const cwdEl = document.getElementById('cwd');
+    const modelEl = document.getElementById('model');
+
+    let sessionId = null;
+    let isStreaming = false;
+
+    // Auto-resize textarea
+    promptEl.addEventListener('input', () => {
+      promptEl.style.height = 'auto';
+      promptEl.style.height = Math.min(promptEl.scrollHeight, 200) + 'px';
+    });
+
+    // Enter to send
+    promptEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    function scrollToBottom() {
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    function addUserMessage(text) {
+      const div = document.createElement('div');
+      div.className = 'message user';
+      div.textContent = text;
+      chatEl.appendChild(div);
+      scrollToBottom();
+    }
+
+    function createAssistantMessage() {
+      const div = document.createElement('div');
+      div.className = 'message assistant';
+      chatEl.appendChild(div);
+      scrollToBottom();
+      return div;
+    }
+
+    function addStatusMessage(text, className) {
+      const div = document.createElement('div');
+      div.className = 'status ' + (className || '');
+      div.textContent = text;
+      chatEl.appendChild(div);
+      scrollToBottom();
+      return div;
+    }
+
+    function removeElement(el) {
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    }
+
+    // Render assistant content from message content array
+    function renderAssistantContent(container, contentBlocks) {
+      // Separate text and tool_use blocks
+      let html = '';
+      for (const block of contentBlocks) {
+        if (block.type === 'text') {
+          html += `<div class="text">${escapeAndFormat(block.text || '')}</div>`;
+        }
+      }
+      container.innerHTML = html;
+      scrollToBottom();
+    }
+
+    function escapeAndFormat(text) {
+      // Escape HTML
+      let s = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+      // Code blocks: ```lang\ncode\n```
+      s = s.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        return `<pre><code>${code}</code></pre>`;
+      });
+
+      // Inline code: `code`
+      s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+      // Bold: **text**
+      s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+      return s;
+    }
+
+    // Track tool blocks by ID
+    const toolBlocks = new Map();
+
+    function getOrCreateToolBlock(container, toolId, toolName, input) {
+      if (toolBlocks.has(toolId)) return toolBlocks.get(toolId);
+
+      const block = document.createElement('div');
+      block.className = 'tool-block';
+
+      const summary = getToolSummary(toolName, input);
+
+      block.innerHTML = `
+        <div class="tool-header">
+          <span class="tool-icon">&#9654;</span>
+          <span class="tool-name">${escapeHtml(toolName)}</span>
+          <span class="tool-summary">${escapeHtml(summary)}</span>
+        </div>
+        <div class="tool-body">${escapeHtml(JSON.stringify(input, null, 2))}</div>
+        <div class="tool-result"></div>
+      `;
+
+      block.querySelector('.tool-header').addEventListener('click', () => {
+        block.classList.toggle('expanded');
+      });
+
+      container.appendChild(block);
+      toolBlocks.set(toolId, block);
+      scrollToBottom();
+      return block;
+    }
+
+    function getToolSummary(name, input) {
+      if (!input) return '';
+      if (name === 'Read' && input.file_path) return input.file_path;
+      if (name === 'Write' && input.file_path) return input.file_path;
+      if (name === 'Edit' && input.file_path) return input.file_path;
+      if (name === 'Bash' && input.command) return input.command.substring(0, 80);
+      if (name === 'Glob' && input.pattern) return input.pattern;
+      if (name === 'Grep' && input.pattern) return input.pattern;
+      return '';
+    }
+
+    function setToolResult(toolId, result, isError) {
+      const block = toolBlocks.get(toolId);
+      if (!block) return;
+
+      const resultEl = block.querySelector('.tool-result');
+      let text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+      if (text && text.length > 2000) text = text.substring(0, 2000) + '\n... (truncated)';
+      resultEl.textContent = text || '(empty)';
+      resultEl.classList.add('has-content');
+      if (isError) resultEl.style.color = '#f85149';
+    }
+
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    async function sendMessage() {
+      const prompt = promptEl.value.trim();
+      if (!prompt || isStreaming) return;
+
+      isStreaming = true;
+      sendBtn.disabled = true;
+      promptEl.value = '';
+      promptEl.style.height = 'auto';
+      toolBlocks.clear();
+
+      addUserMessage(prompt);
+      const statusEl = addStatusMessage('Claude is thinking', 'thinking');
+
+      const assistantEl = createAssistantMessage();
+      let currentToolUseId = null;
+
+      try {
+        const body = { prompt };
+        if (sessionId) body.sessionId = sessionId;
+        if (cwdEl.value.trim()) body.cwd = cwdEl.value.trim();
+        if (modelEl.value) body.model = modelEl.value;
+
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let sseBuffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          sseBuffer += decoder.decode(value, { stream: true });
+          const lines = sseBuffer.split('\n');
+          sseBuffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+
+            let data;
+            try {
+              data = JSON.parse(line.slice(6));
+            } catch {
+              continue;
+            }
+
+            handleEvent(data, assistantEl, statusEl);
+          }
+        }
+      } catch (err) {
+        removeElement(statusEl);
+        addStatusMessage('Error: ' + err.message);
+      } finally {
+        isStreaming = false;
+        sendBtn.disabled = false;
+        promptEl.focus();
+      }
+    }
+
+    function handleEvent(data, assistantEl, statusEl) {
+      switch (data.type) {
+        case 'system':
+          // Init message — session info
+          if (data.session_id) sessionId = data.session_id;
+          break;
+
+        case 'assistant': {
+          removeElement(statusEl);
+          const content = data.message?.content;
+          if (Array.isArray(content)) {
+            renderAssistantContent(assistantEl, content);
+          }
+          if (data.session_id) sessionId = data.session_id;
+          break;
+        }
+
+        case 'tool_use': {
+          removeElement(statusEl);
+          const input = data.tool_data?.input || data.input || {};
+          getOrCreateToolBlock(assistantEl, data.id, data.tool_name, input);
+          break;
+        }
+
+        case 'tool_result': {
+          // Match to most recent tool_use
+          const lastToolId = [...toolBlocks.keys()].pop();
+          if (lastToolId) {
+            const result = data.result;
+            setToolResult(lastToolId, result, data.is_error);
+          }
+          break;
+        }
+
+        case 'result':
+          removeElement(statusEl);
+          if (data.session_id) sessionId = data.session_id;
+          if (data.is_error && data.error) {
+            addStatusMessage('Error: ' + data.error);
+          }
+          break;
+
+        case 'done':
+          removeElement(statusEl);
+          if (data.session_id) sessionId = data.session_id;
+          if (data.exit_code !== 0 && data.exit_code != null) {
+            addStatusMessage('Process exited with code ' + data.exit_code);
+          }
+          break;
+
+        case 'error':
+          removeElement(statusEl);
+          addStatusMessage('Error: ' + data.content);
+          break;
+
+        case 'stderr':
+          // Usually noise, ignore unless debugging
+          break;
+      }
+    }
+  </script>
+</body>
+</html>
