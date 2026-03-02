@@ -171,6 +171,58 @@
     #stop:hover { background: #f85149; }
     .hint { text-align: center; font-size: 11px; color: #484f58; margin-top: 6px; }
 
+    /* ── Mode tabs ── */
+    .mode-tabs { display: flex; gap: 4px; }
+    .mode-tab {
+      background: transparent; border: 1px solid #30363d; color: #8b949e;
+      padding: 4px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    }
+    .mode-tab:hover { color: #c9d1d9; border-color: #484f58; }
+    .mode-tab.active { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+
+    /* ── Duo controls ── */
+    .duo-controls { max-width: 900px; margin: 0 auto; }
+    .duo-row { display: flex; gap: 10px; margin-bottom: 10px; }
+    .duo-row:last-child { margin-bottom: 0; }
+    .duo-input-group { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .duo-input-group label { font-size: 12px; color: #8b949e; }
+    .duo-input-group textarea {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 8px 12px; border-radius: 8px; font-size: 13px; font-family: inherit;
+      resize: none; min-height: 60px;
+    }
+    #duo-topic {
+      flex: 1; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 8px 12px; border-radius: 8px; font-size: 13px; font-family: inherit;
+    }
+    #duo-turns {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 4px 8px; border-radius: 6px; font-size: 13px;
+    }
+    #duo-start {
+      background: #238636; color: #fff; border: none; padding: 8px 20px;
+      border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+      white-space: nowrap;
+    }
+    #duo-start:hover { background: #2ea043; }
+    #duo-start:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+    #duo-stop {
+      background: #da3633; color: #fff; border: none; padding: 8px 20px;
+      border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+      white-space: nowrap;
+    }
+    #duo-stop:hover { background: #f85149; }
+
+    /* ── Speaker labels (duo mode) ── */
+    .speaker-label {
+      font-size: 12px; font-weight: 600; padding: 6px 12px;
+      border-radius: 6px; margin: 8px 0 4px; align-self: flex-start;
+    }
+    .speaker-label.speaker-a { color: #58a6ff; background: #0d2140; border: 1px solid #1f3d6f; }
+    .speaker-label.speaker-b { color: #3fb950; background: #0d2d0d; border: 1px solid #1f5f1f; }
+    .message.assistant.speaker-a { border-color: #1f3d6f; }
+    .message.assistant.speaker-b { border-color: #1f5f1f; }
+
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -181,6 +233,10 @@
 <body>
   <header>
     <h1>Claude Code Web</h1>
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="chat">Chat</button>
+      <button class="mode-tab" data-mode="duo">Duo</button>
+    </div>
     <div class="config-group">
       <label for="cwd">Working Dir:</label>
       <input type="text" id="cwd" placeholder="/path/to/your/project" />
@@ -207,13 +263,38 @@
 
   <div id="chat"></div>
 
-  <footer>
+  <footer id="chat-footer">
     <div class="input-row">
       <textarea id="prompt" rows="1" placeholder="Send a message to Claude Code..." autofocus></textarea>
       <button id="send">Send</button>
       <button id="stop">Stop</button>
     </div>
     <div class="hint">Enter to send, Shift+Enter for newline</div>
+  </footer>
+
+  <footer id="duo-footer" style="display:none">
+    <div class="duo-controls">
+      <div class="duo-row">
+        <div class="duo-input-group">
+          <label>Claude A</label>
+          <textarea id="role-a" placeholder="Role for Claude A, e.g. 'You are a senior engineer who believes in TDD and clean architecture...'"></textarea>
+        </div>
+        <div class="duo-input-group">
+          <label>Claude B</label>
+          <textarea id="role-b" placeholder="Role for Claude B, e.g. 'You are a pragmatic startup developer who values shipping fast...'"></textarea>
+        </div>
+      </div>
+      <div class="duo-row">
+        <input id="duo-topic" placeholder="Discussion topic..." />
+        <select id="duo-turns">
+          <option value="4">4 turns</option>
+          <option value="6" selected>6 turns</option>
+          <option value="10">10 turns</option>
+        </select>
+        <button id="duo-start">Start</button>
+        <button id="duo-stop" style="display:none">Stop</button>
+      </div>
+    </div>
   </footer>
 
   <script>
@@ -584,6 +665,118 @@
 
         // ── Stderr (usually noise) ──
         case 'stderr':
+          break;
+      }
+    }
+    // ── Mode tab switching ──
+    let isDuoMode = false;
+    document.querySelectorAll('.mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        isDuoMode = tab.dataset.mode === 'duo';
+        document.getElementById('chat-footer').style.display = isDuoMode ? 'none' : '';
+        document.getElementById('duo-footer').style.display = isDuoMode ? '' : 'none';
+      });
+    });
+
+    // ── Duo mode ──
+    let duoAssistantEl = null;
+    let duoStatusEl = null;
+
+    document.getElementById('duo-start').addEventListener('click', startDuo);
+    document.getElementById('duo-stop').addEventListener('click', () => {
+      // Reload page to kill connection (simple approach)
+      location.reload();
+    });
+
+    async function startDuo() {
+      const roleA = document.getElementById('role-a').value.trim();
+      const roleB = document.getElementById('role-b').value.trim();
+      const topic = document.getElementById('duo-topic').value.trim();
+      if (!roleA || !roleB || !topic) return;
+
+      const maxTurns = parseInt(document.getElementById('duo-turns').value);
+
+      chatEl.innerHTML = '';
+      toolBlocks.clear();
+
+      const startBtn = document.getElementById('duo-start');
+      const stopBtn2 = document.getElementById('duo-stop');
+      startBtn.disabled = true;
+      startBtn.style.display = 'none';
+      stopBtn2.style.display = '';
+
+      try {
+        const body = { roleA, roleB, topic, maxTurns };
+        if (cwdEl.value.trim()) body.cwd = cwdEl.value.trim();
+        if (modelEl.value) body.model = modelEl.value;
+
+        const response = await fetch('/api/duo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let sseBuffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          sseBuffer += decoder.decode(value, { stream: true });
+          const lines = sseBuffer.split('\n');
+          sseBuffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            let data;
+            try { data = JSON.parse(line.slice(6)); } catch { continue; }
+            handleDuoEvent(data);
+          }
+        }
+      } catch (err) {
+        addStatusMessage('Error: ' + err.message);
+      } finally {
+        startBtn.disabled = false;
+        startBtn.style.display = '';
+        stopBtn2.style.display = 'none';
+      }
+    }
+
+    function handleDuoEvent(data) {
+      switch (data.type) {
+        case '_duo_turn': {
+          // Remove previous thinking status
+          if (duoStatusEl) removeEl(duoStatusEl);
+
+          // Speaker label
+          const label = document.createElement('div');
+          const speakerLower = data.speaker.toLowerCase();
+          label.className = 'speaker-label speaker-' + speakerLower;
+          const round = Math.floor(data.turn / 2) + 1;
+          label.textContent = 'Claude ' + data.speaker + ' \u2014 Round ' + round;
+          chatEl.appendChild(label);
+
+          // New assistant container for this turn
+          duoAssistantEl = createAssistantMessage();
+          duoAssistantEl.classList.add('speaker-' + speakerLower);
+          duoStatusEl = addStatusMessage('Claude ' + data.speaker + ' is thinking', 'thinking');
+          break;
+        }
+
+        case '_duo_complete':
+          if (duoStatusEl) removeEl(duoStatusEl);
+          addStatusMessage('Debate complete');
+          break;
+
+        default:
+          // Delegate to existing handler with the current turn's elements
+          if (duoAssistantEl) {
+            handleEvent(data, duoAssistantEl, duoStatusEl);
+          }
           break;
       }
     }
